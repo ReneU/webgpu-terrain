@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebGPU Procedural Terrain</title>
+    <style>
+      body {
+        margin:0;padding:0;
+      }
+      div {
+        position:relative;
+      }
+      p {
+        position:absolute;top:0;left:5px;
+        padding: 7px;
+        background-color: #b4b4b479;
+        border-radius: 5px;
+      }
+      kbd  {
+        background-color: #eee;
+        border-radius: 3px;
+        border: 1px solid #b4b4b4;
+        box-shadow:
+          0 1px 1px rgba(0, 0, 0, 0.2),
+          0 2px 0 0 rgba(255, 255, 255, 0.7) inset;
+        color: #333;
+        display: inline-block;
+        font-size: 0.85em;
+        font-weight: 700;
+        line-height: 1;
+        padding: 2px 4px;
+        white-space: nowrap;
+      }
+      </style>
+  </head>
+  <body>
+    <script type="module" src="./src/main.ts"></script>
+    <div>
+      <canvas id="gpuCanvas"></canvas>
+      <p>
+        Click + <kbd>W</kbd>/<kbd>A</kbd>/<kbd>S</kbd>/<kbd>D</kbd> to navigate</br>
+        Press <kbd>Ctrl</kbd> to toggle fog</br>
+        Press <kbd>Option</kbd> to toggle lightning</br>
+        <a href="https://github.com/ReneU/webgpu-terrain">https://github.com/ReneU/webgpu-terrain</a>
+      </p>
+    </div>
+  </body>
+</html>
