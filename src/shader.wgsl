@@ -53,12 +53,12 @@ fn light(normal: vec3f, materialDiffuse: vec4f, vertex: vec3f) -> vec4f {
   }
 }
 
-fn randomGradient(p: vec2f) -> vec2f {
+fn randomGradient(p: vec2f, seed: f32) -> vec2f {
   let x = dot(p, vec2(123.4, 234.5));
   let y = dot(p, vec2(234.5, 345.6));
   var gradient = vec2(x, y);
   gradient = sin(gradient);
-  gradient = gradient * 43758.5453;
+  gradient = gradient * 43758.5453 + seed;
 
   gradient = sin(gradient);
   return gradient;
@@ -70,7 +70,7 @@ fn quintic(p: vec2f) -> vec2f {
 
 // Perlin Noise
 // https://github.com/SuboptimalEng/shader-tutorials/blob/main/05-perlin-noise/shader.frag
-fn perlin(p: vec2f) -> f32 {
+fn perlin(p: vec2f, seed: f32) -> f32 {
   // set up a grid of cells
   let gridId = floor(p);
   var gridUv = fract(p);
@@ -82,10 +82,10 @@ fn perlin(p: vec2f) -> f32 {
   let tr = gridId + vec2f(1.0, 1.0);
 
   // find random gradient for each grid corner
-  let gradBl = randomGradient(bl);
-  let gradBr = randomGradient(br);
-  let gradTl = randomGradient(tl);
-  let gradTr = randomGradient(tr);
+  let gradBl = randomGradient(bl, seed);
+  let gradBr = randomGradient(br, seed);
+  let gradTl = randomGradient(tl, seed);
+  let gradTr = randomGradient(tr, seed);
 
   // find distance from current pixel to each grid corner
   let distFromPixelToBl = gridUv - vec2f(0.0, 0.0);
@@ -110,11 +110,14 @@ fn perlin(p: vec2f) -> f32 {
 
 // Fractal Perlin Noise
 fn terrainHeight(p: vec2f) -> f32 {
+  let animationsOn = uniforms.config.w;
+  let time = uniforms.config.x;
   var fractal = 0.0;
   var amplitude = 1.0;
   var pt = p;
   for (var i = 0; i < terrainFractalLayers; i++) {
-    fractal += perlin(pt) * amplitude;
+    let seed = animationsOn * (f32(terrainFractalLayers - i) + time);
+    fractal += perlin(pt, seed) * amplitude;
     pt *= 2.0;
     amplitude *= terrainAmplitudeFreq;
   }

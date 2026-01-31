@@ -170,7 +170,12 @@ const start = async () => {
     uniforms.fogColor = FOG_COLOR;
     uniforms.lightDirection = LIGHT_DIRECTION;
     uniforms.cameraPosition = camera.position;
-    uniforms.config = new Float32Array([t, controls.fogOn ? 1.0 : 0.0, controls.lightsOn ? 1.0 : 0.0]);
+    uniforms.config = new Float32Array([
+      t,
+      controls.fogOn ? 1.0 : 0.0,
+      controls.lightsOn ? 1.0 : 0.0,
+      controls.animationOn ? 1.0 : 0.0
+    ]);
     const uniformBufferData = uniforms.getBufferData();
     device.queue.writeBuffer(
       uniformBuffer,
