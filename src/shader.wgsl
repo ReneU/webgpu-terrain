@@ -6,32 +6,26 @@ struct Uniforms {
   cameraPosition: vec4f,
   config : vec4f,
 }
-@binding(0) @group(0) var<uniform> uniforms : Uniforms;
+@group(0) @binding(0)  var<uniform> uniforms : Uniforms;
+@group(1) @binding(0) var grassSampler : sampler;
+@group(1) @binding(1) var grassTex : texture_2d<f32>;
+@group(1) @binding(2) var mudSampler : sampler;
+@group(1) @binding(3) var mudTex : texture_2d<f32>;
+@group(1) @binding(4) var rockSampler : sampler;
+@group(1) @binding(5) var rockTex : texture_2d<f32>;
 
 struct VertexOut {
   @builtin(position) position : vec4f,
-  @location(0) color : vec4f,
   @location(1) normal : vec3f,
-  @location(2) fogDepth : f32
+  @location(2) height : f32,
+  @location(3) fogDepth : f32,
+  @location(4) uv : vec2f,
 }
-
-const WATER_COLOR = vec4(0.06, 0.37, 0.61, 1.0);
-const SAND_COLOR = vec4(0.8, 0.52, 0.24, 1.0);
-const GRASS_COLOR = vec4(0.13, 0.53, 0.0, 1.0);
-const STONE_COLOR = vec4(0.65, 0.65, 0.65, 1.0);
-const SNOW_COLOR = vec4(1.0, 1.0, 1.0, 1.0);
-
-const WATER_THRESHOLD = 0.5;
-const SAND_THRESHOLD = 0.51;
-const GRASS_THRESHOLD = 0.55;
-const STONE_THRESHOLD = 0.85;
-const SNOW_THRESHOLD = 1.0;
 
 const normalOffsetDelta = 0.032;
 
 const terrainFractalLayers = 5;
 const terrainAmplitudeFreq = 0.3;
-const waveScale = 0.1;
 
 const uLightDiffuse = vec4f(1.0, 1.0, 1.0, 1.0);
 
@@ -110,17 +104,13 @@ fn perlin(p: vec2f, seed: f32) -> f32 {
 
 // Fractal Perlin Noise
 fn terrainHeight(p: vec2f) -> f32 {
-  let animationsOn = uniforms.config.w;
-  let time = uniforms.config.x;
+  let animationState = uniforms.config.w;
   var fractal = 0.0;
-  var amplitude = 1.0;
-  var pt = p;
-  for (var i = 0; i < terrainFractalLayers; i++) {
-    let seed = animationsOn * (f32(terrainFractalLayers - i) + time);
-    fractal += perlin(pt, seed) * amplitude;
-    pt *= 2.0;
-    amplitude *= terrainAmplitudeFreq;
-  }
+  fractal += perlin(p / 6, animationState) * 2.50;
+  fractal += perlin(p,     animationState) * 0.80;
+  fractal += perlin(p * 2, animationState) * 0.20;
+  fractal += perlin(p * 4, animationState) * 0.10;
+  fractal += perlin(p * 8, animationState) * 0.04;
   return fractal;
 }
 
@@ -145,49 +135,6 @@ fn terrainNormal(position: vec2f, noise_value: f32) -> vec3f {
   return cross(tangent_x, tangent_y);
 }
 
-fn water(position: vec2f, t: f32) -> f32 {
-  let x = position.x;
-  let z = position.y;
-  let scale = waveScale;
-  let x_wave = (
-    sin(x * 1.0 / scale + t * 1.0) +
-    sin(x * 2.3 / scale + t * 1.5) +
-    sin(x * 3.3 / scale + t * 0.4)
-  ) / 3.0;
-  let z_wave = (
-    sin(z * 0.2 / scale + t * 1.8) +
-    sin(z * 1.8 / scale + t * 1.8) +
-    sin(z * 2.8 / scale + t * 0.8)
-  ) / 3.0;
-  return WATER_THRESHOLD + (x_wave + z_wave + 2.0) / 100.0;
-}
-
-fn waterNormal(position: vec2f, wave_value: f32, time: f32) -> vec3f {
-  let position_offset_x = position.xy + vec2f(normalOffsetDelta, 0.0);
-  let wave_offset_x = water(position_offset_x, time);
-  let tangent_x = normalize(vec3f(position.xy, wave_value) - vec3f(position_offset_x, wave_offset_x));
-
-  let position_offset_y = position.xy + vec2f(0.0, normalOffsetDelta);
-  let wave_offset_y = water(position_offset_y, time);
-  let tangent_y = normalize(vec3f(position.xy, wave_value) - vec3f(position_offset_y, wave_offset_y));
-
-  return cross(tangent_x, tangent_y);
-}
-
-fn terrainColor(z: f32) -> vec4f {
-  if(z < WATER_THRESHOLD) {
-    return WATER_COLOR;
-  } else if(z < SAND_THRESHOLD) {
-    return mix(WATER_COLOR, SAND_COLOR, (z - WATER_THRESHOLD) / (SAND_THRESHOLD - WATER_THRESHOLD));
-  } else if(z < GRASS_THRESHOLD) {
-    return mix(SAND_COLOR, GRASS_COLOR, (z - SAND_THRESHOLD) / (GRASS_THRESHOLD - SAND_THRESHOLD));
-  } else if(z < STONE_THRESHOLD) {
-    return mix(GRASS_COLOR, STONE_COLOR, (z - GRASS_THRESHOLD) / (STONE_THRESHOLD - GRASS_THRESHOLD));
-  } else {
-    return mix(STONE_COLOR, SNOW_COLOR, (z - STONE_THRESHOLD) / (SNOW_THRESHOLD - STONE_THRESHOLD));
-  }
-}
-
 @vertex
 fn vertex_main(@location(0) position: vec4f) -> VertexOut {
   let time = uniforms.config.x;
@@ -195,20 +142,15 @@ fn vertex_main(@location(0) position: vec4f) -> VertexOut {
   // Offset the position by the actual camera position to simulate the camera moving
   let offset_position = position.xz + uniforms.cameraPosition.xz;
   var terrain_value = terrainHeight(offset_position);
-  var color = terrainColor(terrain_value);
 
   var normal = vec3f(0.0, 1.0, 0.0);
-  if (terrain_value < WATER_THRESHOLD) {
-    terrain_value = water(offset_position, time);
-    normal = waterNormal(offset_position, terrain_value, time);
-  } else {
-    normal = terrainNormal(offset_position, terrain_value);
-  }
+  normal = terrainNormal(offset_position, terrain_value);
   let terrain_position = vec4f(position.x, terrain_value, position.z, 1.0);
 
   var output = VertexOut();
   output.position = uniforms.projectionMatrix * uniforms.modelViewMatrix * terrain_position;
-  output.color = color;
+  output.height = terrain_value;
+  output.uv = offset_position;
   output.normal = normal;
   // Fog depth is the distance from the camera to the vertex
   // https://webglfundamentals.org/webgl/lessons/webgl-fog.html
@@ -220,8 +162,24 @@ fn vertex_main(@location(0) position: vec4f) -> VertexOut {
 fn fragment_main(fragData: VertexOut) -> @location(0) vec4f {
   let fogOn = uniforms.config.y == 1.0;
   let lightsOn = uniforms.config.z == 1.0;
-  let color_light = light(fragData.normal, fragData.color, fragData.position.xyz);
-  var color = select(fragData.color, color_light, lightsOn);
+
+  let steepness = 1.0 - abs(dot(fragData.normal, vec3f(0.0, 1.0, 0.0)));
+  let uv = abs(fragData.uv % 1.0);
+
+  // Use steepness to mix between grass and mud textures
+  var color = mix(
+    textureSample(mudTex, mudSampler, uv),
+    textureSample(grassTex, grassSampler, uv),
+    smoothstep(0.3, 1.0, steepness)
+  );
+  // Use height to mix in rock texture on the peaks
+  color = mix(
+    color,
+    textureSample(rockTex, rockSampler, uv),
+    smoothstep(1.7, 2.3, fragData.height)
+  );
+  // Apply lighting if enabled
+  color = select(color, light(fragData.normal, color, fragData.position.xyz), lightsOn);
   if (!fogOn) {
     return color;
   } else {

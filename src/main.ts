@@ -3,6 +3,9 @@ import shaderString from './shader.wgsl?raw';
 import { Camera } from './Camera';
 import { Uniforms } from './Uniforms';
 import { Controls } from './Controls';
+import grassUrl from './grass.png?url';
+import mudUrl from './mud.png?url';
+import rockUrl from './rock.png?url';
 
 // Constants
 const CONTROLS_SPEED = 0.002;
@@ -16,6 +19,7 @@ const LIGHT_DIRECTION = vec4.fromValues(-0.25, -0.25, -0.25, 0.0);
 
 // Variables
 let previousTime = performance.now();
+let animationState = 0;
 
 const start = async () => {
 
@@ -99,11 +103,13 @@ const start = async () => {
 
   device.queue.writeBuffer(indexBuffer, 0, indicesu32);
 
-  const uniforms = new Uniforms();
-  const uniformBuffer = device.createBuffer({
-    label: 'uniform buffer',
-    size: uniforms.uniformBufferSize,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  // Depth texture for depth testing (avoids z-fighting / z-flickering)
+  const depthFormat = 'depth24plus';
+  const depthTexture = device.createTexture({
+    label: 'depth',
+    size: [canvas.width, canvas.height, 1],
+    format: depthFormat,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
 
   // Create the actual render pipeline
@@ -123,10 +129,25 @@ const start = async () => {
     primitive: {
       topology: 'triangle-list'
     },
+    depthStencil: {
+      format: depthFormat,
+      depthWriteEnabled: true,
+      depthCompare: 'less-equal',
+    },
     layout: 'auto'
   };
 
   const renderPipeline = device.createRenderPipeline(pipelineDescriptor);
+
+  ////////////////
+  /// UNIFORMS ///
+  ////////////////
+  const uniforms = new Uniforms();
+  const uniformBuffer = device.createBuffer({
+    label: 'uniform buffer',
+    size: uniforms.uniformBufferSize,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
 
   const uniformBindGroup = device.createBindGroup({
     layout: renderPipeline.getBindGroupLayout(0),
@@ -140,11 +161,67 @@ const start = async () => {
     ],
   });
 
+  ////////////////
+  /// TEXTURES ///
+  ////////////////
+  async function loadTexture(device: GPUDevice, url: string) {
+    // Fetch + decode image (works in modern browsers)
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const bitmap = await createImageBitmap(blob, { colorSpaceConversion: "none" });
+
+    const texture = device.createTexture({
+      label: `texture:${url}`,
+      size: { width: bitmap.width, height: bitmap.height },
+      format: "rgba8unorm",
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+
+    // Upload pixels into the texture
+    device.queue.copyExternalImageToTexture(
+      { source: bitmap },
+      { texture: texture },
+      { width: bitmap.width, height: bitmap.height }
+    );
+
+    // Create a view + sampler (what shaders actually bind)
+    const view = texture.createView();
+    const sampler = device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      mipmapFilter: "linear",
+    });
+
+    return { texture, view, sampler, width: bitmap.width, height: bitmap.height };
+  }
+
+  const { view: grassView, sampler: grassSampler } = await loadTexture(device, grassUrl);
+  const { view: mudView, sampler: mudSampler } = await loadTexture(device, mudUrl);
+  const { view: rockView, sampler: rockSampler } = await loadTexture(device, rockUrl);
+
+  const textureBindGroup = device.createBindGroup({
+    layout: renderPipeline.getBindGroupLayout(1),
+    entries: [
+      { binding: 0, resource: grassSampler },
+      { binding: 1, resource: grassView },
+      { binding: 2, resource: mudSampler },
+      { binding: 3, resource: mudView },
+      { binding: 4, resource: rockSampler },
+      { binding: 5, resource: rockView },
+    ],
+  });
+
   //////////////
   /// CAMERA ///
   //////////////
   const aspect = canvas.width / canvas.height;
-  const projectionMatrix = mat4.perspective((2 * Math.PI) / 5, aspect, 0, 100.0);
+  // Near=0 causes bad depth precision and z-fighting.
+  const near = 0.1;
+  const far = 50.0;
+  const projectionMatrix = mat4.perspective((2 * Math.PI) / 5, aspect, near, far);
   const camera = new Camera(START_POSITION);
 
   ////////////////
@@ -170,11 +247,12 @@ const start = async () => {
     uniforms.fogColor = FOG_COLOR;
     uniforms.lightDirection = LIGHT_DIRECTION;
     uniforms.cameraPosition = camera.position;
+    animationState = controls.animationOn ? animationState + deltaTime * 0.001 : animationState;
     uniforms.config = new Float32Array([
       t,
       controls.fogOn ? 1.0 : 0.0,
       controls.lightsOn ? 1.0 : 0.0,
-      controls.animationOn ? 1.0 : 0.0
+      animationState
     ]);
     const uniformBufferData = uniforms.getBufferData();
     device.queue.writeBuffer(
@@ -194,7 +272,13 @@ const start = async () => {
         loadOp: 'clear',
         storeOp: 'store',
         view: context.getCurrentTexture().createView()
-      }]
+      }],
+      depthStencilAttachment: {
+        view: depthTexture.createView(),
+        depthClearValue: 1.0,
+        depthLoadOp: 'clear',
+        depthStoreOp: 'store',
+      },
     };
 
     // Create GPUCommandEncoder to issue commands to the GPU
@@ -206,6 +290,7 @@ const start = async () => {
     // Draw the indices
     passEncoder.setPipeline(renderPipeline);
     passEncoder.setBindGroup(0, uniformBindGroup);
+    passEncoder.setBindGroup(1, textureBindGroup);
     passEncoder.setVertexBuffer(0, vertexBuffer);
     passEncoder.setIndexBuffer(indexBuffer, 'uint32');
     passEncoder.drawIndexed(indices.length);
